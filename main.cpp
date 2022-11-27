@@ -16,24 +16,6 @@
 #include "glut.h"
 
 
-//	This is a sample OpenGL / GLUT program
-//
-//	The objective is to draw a 3d object and change the color of the axes
-//		with a glut menu
-//
-//	The left mouse button does rotation
-//	The middle mouse button does scaling
-//	The user interface allows:
-//		1. The axes to be turned on and off
-//		2. The color of the axes to be changed
-//		3. Debugging to be turned on and off
-//		4. Depth cueing to be turned on and off
-//		5. The projection to be changed
-//		6. The transformations to be reset
-//		7. The program to quit
-//
-//	Author:			Joe Graphics
-
 // title of these windows:
 
 const char *WINDOWTITLE = "Basic Terrain Generator";
@@ -105,45 +87,6 @@ const GLfloat AXES_WIDTH   = 3.;
 // this order must match the radio button order, which must match the order of the color names,
 // 	which must match the order of the color RGB values
 
-enum Colors
-{
-	RED,
-	YELLOW,
-	GREEN,
-	CYAN,
-	BLUE,
-	MAGENTA,
-	WHITE,
-	BLACK
-};
-
-char * ColorNames[ ] =
-{
-	(char *)"Red",
-	(char*)"Yellow",
-	(char*)"Green",
-	(char*)"Cyan",
-	(char*)"Blue",
-	(char*)"Magenta",
-	(char*)"White",
-	(char*)"Black"
-};
-
-// the color definitions:
-// this order must match the menu order
-
-const GLfloat Colors[ ][3] = 
-{
-	{ 1., 0., 0. },		// red
-	{ 1., 1., 0. },		// yellow
-	{ 0., 1., 0. },		// green
-	{ 0., 1., 1. },		// cyan
-	{ 0., 0., 1. },		// blue
-	{ 1., 0., 1. },		// magenta
-	{ 1., 1., 1. },		// white
-	{ 0., 0., 0. },		// black
-};
-
 // fog parameters:
 
 const GLfloat FOGCOLOR[4] = { .0f, .0f, .0f, 1.f };
@@ -159,13 +102,9 @@ int		ActiveButton;			// current button that is down
 GLuint	AxesList;				// list to hold the axes
 int		AxesOn;					// != 0 means to draw the axes
 int		DebugOn;				// != 0 means to print debugging info
-int		DepthCueOn;				// != 0 means to use intensity depth cueing
-int		DepthBufferOn;			// != 0 means to use the z-buffer
-int		DepthFightingOn;		// != 0 means to force the creation of z-fighting
 int		MainWindow;				// window id for main graphics window
 float	Scale;					// scaling factor
 int		ShadowsOn;				// != 0 means to turn shadows on
-int		WhichColor;				// index into Colors[ ]
 int		WhichProjection;		// ORTHO or PERSP
 int		Xmouse, Ymouse;			// mouse values
 float	Xrot, Yrot;				// rotation angles in degrees
@@ -176,10 +115,6 @@ float	Xrot, Yrot;				// rotation angles in degrees
 void	Animate( );
 void	Display( );
 void	DoAxesMenu( int );
-void	DoColorMenu( int );
-void	DoDepthBufferMenu( int );
-void	DoDepthFightingMenu( int );
-void	DoDepthMenu( int );
 void	DoDebugMenu( int );
 void	DoMainMenu( int );
 void	DoProjectMenu( int );
@@ -335,35 +270,15 @@ Display( )
 		Scale = MINSCALE;
 	glScalef( (GLfloat)Scale, (GLfloat)Scale, (GLfloat)Scale );
 
-
-	// set the fog parameters:
-
-	if( DepthCueOn != 0 )
-	{
-		glFogi( GL_FOG_MODE, FOGMODE );
-		glFogfv( GL_FOG_COLOR, FOGCOLOR );
-		glFogf( GL_FOG_DENSITY, FOGDENSITY );
-		glFogf( GL_FOG_START, FOGSTART );
-		glFogf( GL_FOG_END, FOGEND );
-		glEnable( GL_FOG );
-	}
-	else
-	{
-		glDisable( GL_FOG );
-	}
-
-
 	// possibly draw the axes:
-
 	if( AxesOn != 0 )
 	{
-		glColor3fv( &Colors[WhichColor][0] );
+		glColor3f(1., 1., 1.);
 		glCallList( AxesList );
 	}
 
 
 	// since we are using glScalef( ), be sure the normals get unitized:
-
 	glEnable( GL_NORMALIZE );
 
 	glDisable( GL_DEPTH_TEST );
@@ -372,15 +287,11 @@ Display( )
 	gluOrtho2D( 0.f, 100.f,     0.f, 100.f );
 	glMatrixMode( GL_MODELVIEW );
 	glLoadIdentity( );
-	glColor3f( 1.f, 1.f, 1.f );
-
 
 	// swap the double-buffered framebuffers:
-
 	glutSwapBuffers( );
 
 	// be sure the graphics buffer has been sent:
-
 	glFlush( );
 }
 
@@ -396,16 +307,6 @@ DoAxesMenu( int id )
 
 
 void
-DoColorMenu( int id )
-{
-	WhichColor = id - RED;
-
-	glutSetWindow( MainWindow );
-	glutPostRedisplay( );
-}
-
-
-void
 DoDebugMenu( int id )
 {
 	DebugOn = id;
@@ -413,37 +314,6 @@ DoDebugMenu( int id )
 	glutSetWindow( MainWindow );
 	glutPostRedisplay( );
 }
-
-
-void
-DoDepthBufferMenu( int id )
-{
-	DepthBufferOn = id;
-
-	glutSetWindow( MainWindow );
-	glutPostRedisplay( );
-}
-
-
-void
-DoDepthFightingMenu( int id )
-{
-	DepthFightingOn = id;
-
-	glutSetWindow( MainWindow );
-	glutPostRedisplay( );
-}
-
-
-void
-DoDepthMenu( int id )
-{
-	DepthCueOn = id;
-
-	glutSetWindow( MainWindow );
-	glutPostRedisplay( );
-}
-
 
 // main menu callback:
 
@@ -524,26 +394,7 @@ InitMenus( )
 {
 	glutSetWindow( MainWindow );
 
-	int numColors = sizeof( Colors ) / ( 3*sizeof(int) );
-	int colormenu = glutCreateMenu( DoColorMenu );
-	for( int i = 0; i < numColors; i++ )
-	{
-		glutAddMenuEntry( ColorNames[i], i );
-	}
-
 	int axesmenu = glutCreateMenu( DoAxesMenu );
-	glutAddMenuEntry( "Off",  0 );
-	glutAddMenuEntry( "On",   1 );
-
-	int depthcuemenu = glutCreateMenu( DoDepthMenu );
-	glutAddMenuEntry( "Off",  0 );
-	glutAddMenuEntry( "On",   1 );
-
-	int depthbuffermenu = glutCreateMenu( DoDepthBufferMenu );
-	glutAddMenuEntry( "Off",  0 );
-	glutAddMenuEntry( "On",   1 );
-
-	int depthfightingmenu = glutCreateMenu( DoDepthFightingMenu );
 	glutAddMenuEntry( "Off",  0 );
 	glutAddMenuEntry( "On",   1 );
 
@@ -557,9 +408,7 @@ InitMenus( )
 
 	int mainmenu = glutCreateMenu( DoMainMenu );
 	glutAddSubMenu(   "Axes",          axesmenu);
-	glutAddSubMenu(   "Axis Colors",   colormenu);
 
-	glutAddSubMenu(   "Depth Cue",     depthcuemenu);
 	glutAddSubMenu(   "Projection",    projmenu );
 	glutAddMenuEntry( "Reset",         RESET );
 	glutAddSubMenu(   "Debug",         debugmenu);
@@ -825,12 +674,8 @@ Reset( )
 	ActiveButton = 0;
 	AxesOn = 1;
 	DebugOn = 0;
-	DepthBufferOn = 1;
-	DepthFightingOn = 0;
-	DepthCueOn = 0;
 	Scale  = 1.0;
 	ShadowsOn = 0;
-	WhichColor = WHITE;
 	WhichProjection = PERSP;
 	Xrot = Yrot = 0.;
 }
