@@ -109,7 +109,25 @@ int		WhichProjection;		// ORTHO or PERSP
 int		Xmouse, Ymouse;			// mouse values
 float	Xrot, Yrot;				// rotation angles in degrees
 
+struct Point {
+	float x;
+	float y;
+	float z;
+};
 
+// constants
+
+// w/h of perlin noise array
+const int	worldSize  = 16;
+const float squareSize = 0.15;
+
+Point	worldMap[worldSize][worldSize];
+
+GLuint	mapListLines;
+GLuint	mapListGround;
+
+int		groundOn;				// != 0 means turn ground on
+int		linesOn;				// != 0 means turn lines on
 // function prototypes:
 
 void	Animate( );
@@ -142,8 +160,17 @@ void			Cross(float[3], float[3], float[3]);
 float			Dot(float [3], float [3]);
 float			Unit(float [3], float [3]);
 
-
 // main program:
+
+void initMap() {
+	for (int i = 0; i < worldSize; i++) {
+		for (int j = 0; j < worldSize; j++) {
+			worldMap[i][j].x = (i * squareSize) - ((worldSize / 2. - 1.) * squareSize) - (squareSize/2);
+			worldMap[i][j].z = (j * squareSize) - ((worldSize / 2. - 1.) * squareSize) - (squareSize/2);
+			worldMap[i][j].y = 0.;
+		}
+	}
+}
 
 int
 main( int argc, char *argv[ ] )
@@ -270,7 +297,25 @@ Display( )
 		Scale = MINSCALE;
 	glScalef( (GLfloat)Scale, (GLfloat)Scale, (GLfloat)Scale );
 
+	// drawing the world'
+	if (linesOn) {
+		if (groundOn) {
+			glColor3f(0., 0., 0.);
+		}
+		else {
+			glColor3f(1., 1., 1.);
+		}
+		glCallList(mapListLines);
+	}
+	
+	if (groundOn) {
+		glColor3f(1., 1., 1.);
+		glCallList(mapListGround);
+	}
+	
+
 	// possibly draw the axes:
+
 	if( AxesOn != 0 )
 	{
 		glColor3f(1., 1., 1.);
@@ -293,6 +338,24 @@ Display( )
 
 	// be sure the graphics buffer has been sent:
 	glFlush( );
+}
+
+void
+DoLinesMenu(int id)
+{
+	linesOn = id;
+
+	glutSetWindow(MainWindow);
+	glutPostRedisplay();
+}
+
+void
+DoGroundMenu(int id)
+{
+	groundOn = id;
+
+	glutSetWindow(MainWindow);
+	glutPostRedisplay();
 }
 
 
@@ -398,6 +461,14 @@ InitMenus( )
 	glutAddMenuEntry( "Off",  0 );
 	glutAddMenuEntry( "On",   1 );
 
+	int linesmenu = glutCreateMenu(DoLinesMenu);
+	glutAddMenuEntry("Off", 0);
+	glutAddMenuEntry("On", 1);
+
+	int groundmenu = glutCreateMenu(DoGroundMenu);
+	glutAddMenuEntry("Off", 0);
+	glutAddMenuEntry("On", 1);
+
 	int debugmenu = glutCreateMenu( DoDebugMenu );
 	glutAddMenuEntry( "Off",  0 );
 	glutAddMenuEntry( "On",   1 );
@@ -407,6 +478,10 @@ InitMenus( )
 	glutAddMenuEntry( "Perspective",   PERSP );
 
 	int mainmenu = glutCreateMenu( DoMainMenu );
+
+	glutAddSubMenu("Lines", linesmenu);
+	glutAddSubMenu("Ground", groundmenu);
+
 	glutAddSubMenu(   "Axes",          axesmenu);
 
 	glutAddSubMenu(   "Projection",    projmenu );
@@ -422,11 +497,13 @@ InitMenus( )
 
 
 // initialize the glut and OpenGL libraries:
-//	also setup callback functions
+// also setup callback functions
 
 void
 InitGraphics( )
 {
+	initMap();
+	
 	// request the display modes:
 	// ask for red-green-blue-alpha color, double-buffering, and z-buffering:
 
@@ -521,6 +598,39 @@ InitLists( )
 {
 	
 	glutSetWindow( MainWindow );
+
+	mapListLines = glGenLists( 1 );
+	glNewList(mapListLines, GL_COMPILE);
+	for (int i = 0; i < worldSize - 1; i++) {
+		glBegin(GL_LINE_STRIP);
+		for (int j = 0; j < worldSize; j++) {
+			glVertex3f(worldMap[i][j].x, worldMap[i][j].y + 0.001, worldMap[i][j].z);
+			glVertex3f(worldMap[i + 1][j].x, worldMap[i + 1][j].y + 0.001, worldMap[i + 1][j].z);
+		}
+		glEnd();
+	}
+	for (int i = 0; i < worldSize; i++) {
+		glBegin(GL_LINE_STRIP);
+		for (int j = 0; j < worldSize; j++) {
+			glVertex3f(worldMap[i][j].x, worldMap[i][j].y + 0.001, worldMap[i][j].z);
+		}
+		glEnd();
+	}
+	glEndList();
+
+
+	mapListGround = glGenLists(1);
+	glNewList(mapListGround, GL_COMPILE);
+	for (int i = 0; i < worldSize - 1; i++) {
+		glBegin(GL_TRIANGLE_STRIP);
+		for (int j = 0; j < worldSize; j++) {
+			glVertex3f(worldMap[i][j].x, worldMap[i][j].y, worldMap[i][j].z);
+			glVertex3f(worldMap[i + 1][j].x, worldMap[i + 1][j].y, worldMap[i + 1][j].z);
+		}
+		glEnd();
+	}
+	glEndList();
+
 
 	// create the axes:
 
@@ -672,12 +782,14 @@ void
 Reset( )
 {
 	ActiveButton = 0;
-	AxesOn = 1;
+	AxesOn = 0;
 	DebugOn = 0;
 	Scale  = 1.0;
 	ShadowsOn = 0;
 	WhichProjection = PERSP;
 	Xrot = Yrot = 0.;
+	groundOn = 0;
+	linesOn = 1;
 }
 
 
