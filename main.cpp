@@ -1,6 +1,8 @@
 #include <stdio.h>
+#include <cstdlib>
 #include <stdlib.h>
 #include <ctype.h>
+#include <ctime>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -109,17 +111,23 @@ int		WhichProjection;		// ORTHO or PERSP
 int		Xmouse, Ymouse;			// mouse values
 float	Xrot, Yrot;				// rotation angles in degrees
 
+// can (will) be used as a Vec2 if z is ignored
 struct Point {
 	float x;
 	float y;
-	float z;
+	float z = 0;
 };
 
 // constants
 
+// original permutation set Ken Perlin used from https://cs.nyu.edu/~perlin/noise/, but repeated twice to avoid overflow
+float permutation[256 * 2];
+const float		perlinZ = 0.8;
+
 // w/h of perlin noise array
-const int	worldSize  = 16;
+const int	worldSize  = 256;
 const float squareSize = 0.15;
+const float maxHeight = 6.;
 
 Point	worldMap[worldSize][worldSize];
 
@@ -160,14 +168,108 @@ void			Cross(float[3], float[3], float[3]);
 float			Dot(float [3], float [3]);
 float			Unit(float [3], float [3]);
 
+void			initMap();
+
+float			fade(double x);
+float			interpolate(float a, float b, float x);
+float			gradient(int hash, float x, float y, float z);
+float			exaggerate(float y);
 // main program:
 
+// this is implementing Ken Perlin's improved noise from here https://cs.nyu.edu/~perlin/noise/ 
+float perlin(float x, float y) {
+	// find unit square that contains point
+	int ix = (int) floor(x) & 0xFF; //bind x and y to 0, 255 to avoid overflow
+	int iy = (int) floor(y) & 0xFF; 
+	int iz = (int) floor(perlinZ) & 0xFF;
+
+	x -= floor(x); // relative x, y in square
+	y -= floor(y);
+	float z = perlinZ - floor(perlinZ);
+
+	double u = fade(x);
+	double v = fade(y);
+	double w = fade(z);
+	
+	//hash coordinates of the cube corners
+	int A = permutation[ix] + iy;
+	int AA = permutation[A] + iz;
+	int AB = permutation[A + 1] + iz;
+	int B = permutation[ix + 1] + iy;
+	int BA = permutation[B] + iz;
+	int BB = permutation[B + 1] + iz;
+
+	float x1, x2, y1, y2;
+	x1 = interpolate(gradient(permutation[AA], x, y, z), gradient(permutation[BA], x - 1, y, z), u);
+	x2 = interpolate(gradient(permutation[AB], x, y - 1, z), gradient(permutation[BB], x - 1, y - 1, z), u);
+	y1 = interpolate(x1, x2, v);
+
+	x1 = interpolate(gradient(permutation[AA + 1], x, y, z - 1), gradient(permutation[BA + 1], x - 1, y, z - 1), u);
+	x2 = interpolate(gradient(permutation[AB + 1], x, y - 1, z - 1), gradient(permutation[BB + 1], x - 1, y - 1, z - 1), u);
+	y2 = interpolate(x1, x2, v);
+
+	float res = interpolate(y1, y2, w); //[-1, 1]
+	return res * maxHeight;
+}
+
+//  ease curve function by perlin 
+//	easier to read:
+//  f(x) = 6x^5 - 15x^4 + 10x^3
+float fade(double x) {
+	return x * x * x * (x * (x * 6 - 15) + 10);
+}
+
+//basic linear interpolation
+float interpolate(float a, float b, float x) {
+	return a + x * (b - a);
+}
+ 
+// gradient function retrieved from http://riven8192.blogspot.com/2010/08/calculate-perlinnoise-twice-as-fast.html
+float gradient(int hash, float x, float y, float z) {
+	switch (hash & 0xF)
+	{
+		case 0x0: return  x + y;
+		case 0x1: return -x + y;
+		case 0x2: return  x - y;
+		case 0x3: return -x - y;
+		case 0x4: return  x + z;
+		case 0x5: return -x + z;
+		case 0x6: return  x - z;
+		case 0x7: return -x - z;
+		case 0x8: return  y + z;
+		case 0x9: return -y + z;
+		case 0xA: return  y - z;
+		case 0xB: return -y - z;
+		case 0xC: return  y + x;
+		case 0xD: return -y + z;
+		case 0xE: return  y - x;
+		case 0xF: return -y - z;
+		default: return 0; // never happens
+	}
+}
+
+// initializes a random permutation array
+void initPermutations() {
+	std::srand(std::time(NULL));
+	for (int i = 0; i < 256; i++) {
+		permutation[i] = ((float)std::rand() / RAND_MAX) * 255;
+		permutation[i + 256] = permutation[i]; //duplicating the array so we don't get overflow later
+	}
+}
+
+// exponential function to exaggerate the peaks and keep the valleys.
+float exaggerate(float y) {
+	return (pow((0.02 * y), 4) + pow((0.2 * y), 2)) * maxHeight;
+}
+
 void initMap() {
+	initPermutations();
 	for (int i = 0; i < worldSize; i++) {
 		for (int j = 0; j < worldSize; j++) {
-			worldMap[i][j].x = (i * squareSize) - ((worldSize / 2. - 1.) * squareSize) - (squareSize/2);
-			worldMap[i][j].z = (j * squareSize) - ((worldSize / 2. - 1.) * squareSize) - (squareSize/2);
-			worldMap[i][j].y = 0.;
+			worldMap[i][j].x = (i * squareSize);
+			worldMap[i][j].z = (j * squareSize);
+
+			worldMap[i][j].y = exaggerate(perlin((float)i / 24., (float)j / 24.));
 		}
 	}
 }
@@ -599,20 +701,23 @@ InitLists( )
 	
 	glutSetWindow( MainWindow );
 
+	//offset makes 0,0 the center of the world
+	float offset = - ((worldSize / 2. - 1.) * squareSize) - (squareSize / 2);
+
 	mapListLines = glGenLists( 1 );
 	glNewList(mapListLines, GL_COMPILE);
 	for (int i = 0; i < worldSize - 1; i++) {
 		glBegin(GL_LINE_STRIP);
 		for (int j = 0; j < worldSize; j++) {
-			glVertex3f(worldMap[i][j].x, worldMap[i][j].y + 0.001, worldMap[i][j].z);
-			glVertex3f(worldMap[i + 1][j].x, worldMap[i + 1][j].y + 0.001, worldMap[i + 1][j].z);
+			glVertex3f(worldMap[i][j].x + offset, worldMap[i][j].y + 0.01, worldMap[i][j].z + offset);
+			glVertex3f(worldMap[i + 1][j].x + offset, worldMap[i + 1][j].y + 0.01, worldMap[i + 1][j].z + offset);
 		}
 		glEnd();
 	}
 	for (int i = 0; i < worldSize; i++) {
 		glBegin(GL_LINE_STRIP);
 		for (int j = 0; j < worldSize; j++) {
-			glVertex3f(worldMap[i][j].x, worldMap[i][j].y + 0.001, worldMap[i][j].z);
+			glVertex3f(worldMap[i][j].x + offset, worldMap[i][j].y + 0.01, worldMap[i][j].z + offset);
 		}
 		glEnd();
 	}
@@ -624,8 +729,8 @@ InitLists( )
 	for (int i = 0; i < worldSize - 1; i++) {
 		glBegin(GL_TRIANGLE_STRIP);
 		for (int j = 0; j < worldSize; j++) {
-			glVertex3f(worldMap[i][j].x, worldMap[i][j].y, worldMap[i][j].z);
-			glVertex3f(worldMap[i + 1][j].x, worldMap[i + 1][j].y, worldMap[i + 1][j].z);
+			glVertex3f(worldMap[i][j].x + offset, worldMap[i][j].y, worldMap[i][j].z + offset);
+			glVertex3f(worldMap[i + 1][j].x + offset, worldMap[i + 1][j].y, worldMap[i + 1][j].z + offset);
 		}
 		glEnd();
 	}
