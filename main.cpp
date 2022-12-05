@@ -73,6 +73,7 @@ enum Projections
 
 enum ButtonVals
 {
+	GENERATE,
 	RESET,
 	QUIT
 };
@@ -118,24 +119,42 @@ struct Point {
 	float z = 0;
 };
 
+struct Tree {
+	Point lightCoord;
+	float r;
+	float g;
+	float b;
+};
+
+Tree trees[7];
+
 // constants
+
+
 
 // original permutation set Ken Perlin used from https://cs.nyu.edu/~perlin/noise/, but repeated twice to avoid overflow
 float permutation[256 * 2];
 const float		perlinZ = 0.8;
+const float		perlinFactor = 16;
+
+// big tree heights
+const float		treeHeight = 2.5;
+float			canopySize = 0.5;
 
 // w/h of perlin noise array
 const int	worldSize  = 256;
 const float squareSize = 0.15;
-const float maxHeight = 6.;
+const float maxHeight = 5.;
 
 Point	worldMap[worldSize][worldSize];
 
 GLuint	mapListLines;
 GLuint	mapListGround;
+GLuint	treeList;
 
 int		groundOn;				// != 0 means turn ground on
 int		linesOn;				// != 0 means turn lines on
+int		treesOn;				// != 0 means turn trees on
 // function prototypes:
 
 void	Animate( );
@@ -174,7 +193,49 @@ float			fade(double x);
 float			interpolate(float a, float b, float x);
 float			gradient(int hash, float x, float y, float z);
 float			exaggerate(float y);
+
+float	randFloat(float min, float max);
+int		randInt(int min, int max);
+
+void	SetPointLight(int ilight, float x, float y, float z, float r, float g, float b);
+void	SetSpotLight(int ilight, float x, float y, float z, float xdir, float ydir, float zdir, float r, float g, float b);
+float* Array3(float a, float b, float c);
 // main program:
+
+void drawCanopy(float x, float y, float z) {
+	glBegin(GL_QUADS);
+	glVertex3f(x + canopySize, y - canopySize, z + canopySize);
+	glVertex3f(x + canopySize, y - canopySize, z - canopySize);
+	glVertex3f(x + canopySize, y + canopySize, z - canopySize);
+	glVertex3f(x + canopySize, y + canopySize, z + canopySize);
+
+	glVertex3f(x - canopySize, y - canopySize, z + canopySize);
+	glVertex3f(x - canopySize, y + canopySize, z + canopySize);
+	glVertex3f(x - canopySize, y + canopySize, z - canopySize);
+	glVertex3f(x - canopySize, y - canopySize, z - canopySize);
+
+	glVertex3f(x - canopySize, y + canopySize, z + canopySize);
+	glVertex3f(x + canopySize, y + canopySize, z + canopySize);
+	glVertex3f(x + canopySize, y + canopySize, z - canopySize);
+	glVertex3f(x - canopySize, y + canopySize, z - canopySize);
+
+	glVertex3f(x - canopySize, y - canopySize, z + canopySize);
+	glVertex3f(x - canopySize, y - canopySize, z - canopySize);
+	glVertex3f(x + canopySize, y - canopySize, z - canopySize);
+	glVertex3f(x + canopySize, y - canopySize, z + canopySize);
+
+	glVertex3f(x - canopySize, y - canopySize, z + canopySize);
+	glVertex3f(x + canopySize, y - canopySize, z + canopySize);
+	glVertex3f(x + canopySize, y + canopySize, z + canopySize);
+	glVertex3f(x - canopySize, y + canopySize, z + canopySize);
+
+	glVertex3f(x - canopySize, y - canopySize, z - canopySize);
+	glVertex3f(x - canopySize, y + canopySize, z - canopySize);
+	glVertex3f(x + canopySize, y + canopySize, z - canopySize);
+	glVertex3f(x + canopySize, y - canopySize, z - canopySize);
+	glEnd();
+}
+
 
 // this is implementing Ken Perlin's improved noise from here https://cs.nyu.edu/~perlin/noise/ 
 float perlin(float x, float y) {
@@ -257,21 +318,31 @@ void initPermutations() {
 	}
 }
 
-// exponential function to exaggerate the peaks and keep the valleys.
+// polynomial function to exaggerate the peaks and keep the valleys.
 float exaggerate(float y) {
 	return (pow((0.02 * y), 4) + pow((0.2 * y), 2)) * maxHeight;
 }
 
 void initMap() {
 	initPermutations();
-	for (int i = 0; i < worldSize; i++) {
+	for (int i = 0; i < worldSize ; i++) {
 		for (int j = 0; j < worldSize; j++) {
-			worldMap[i][j].x = (i * squareSize);
-			worldMap[i][j].z = (j * squareSize);
+			worldMap[i][j].x = ((i) * squareSize);
+			worldMap[i][j].z = ((j) * squareSize);
 
-			worldMap[i][j].y = exaggerate(perlin((float)i / 24., (float)j / 24.));
+			worldMap[i][j].y = exaggerate(perlin((float)i / ((float)worldSize / perlinFactor), (float)j / ((float)worldSize / perlinFactor)));
 		}
 	}
+}
+
+// random 
+float randFloat(float min, float max) {
+	std::srand(std::time(NULL));
+	return (((float)std::rand() / RAND_MAX) * (max - min)) + min;
+}
+
+int randInt(int min, int max) {
+	return (int)(std::rand() % (max - min + 1)) + min;
 }
 
 int
@@ -399,7 +470,38 @@ Display( )
 		Scale = MINSCALE;
 	glScalef( (GLfloat)Scale, (GLfloat)Scale, (GLfloat)Scale );
 
-	// drawing the world'
+	glEnable(GL_LIGHTING);
+	GLfloat ambienceParams[4] = { .3, .3, .3, 1.0 };
+	glLightModelfv(GL_LIGHT_MODEL_AMBIENT, ambienceParams);
+
+	glShadeModel(GL_SMOOTH);
+	glEnable(GL_NORMALIZE);
+
+	// drawing the world
+	if (groundOn) {
+		glColor3f(1., 1., 1.);
+		glCallList(mapListGround);
+	}
+
+	SetSpotLight(GL_LIGHT0, 0., 5000., 0., 0., 0., 0., 0.1, 0.1, 0.1);
+	
+	glPushMatrix();
+		SetPointLight(GL_LIGHT1, trees[0].lightCoord.x, 10., trees[0].lightCoord.z, trees[0].r, trees[0].g, trees[0].b);
+		SetPointLight(GL_LIGHT2, trees[1].lightCoord.x, 10., trees[1].lightCoord.z, trees[1].r, trees[1].g, trees[1].b);
+		SetPointLight(GL_LIGHT3, trees[2].lightCoord.x, 10., trees[2].lightCoord.z, trees[2].r, trees[2].g, trees[2].b);
+		SetPointLight(GL_LIGHT4, trees[3].lightCoord.x, 10., trees[3].lightCoord.z, trees[3].r, trees[3].g, trees[3].b);
+		SetPointLight(GL_LIGHT5, trees[4].lightCoord.x, 10., trees[4].lightCoord.z, trees[4].r, trees[4].g, trees[4].b);
+		SetPointLight(GL_LIGHT6, trees[5].lightCoord.x, 10., trees[5].lightCoord.z, trees[5].r, trees[5].g, trees[5].b);
+		SetPointLight(GL_LIGHT7, trees[6].lightCoord.x, 10., trees[6].lightCoord.z, trees[6].r, trees[6].g, trees[6].b);
+	glPopMatrix();
+
+
+	glDisable(GL_LIGHTING);
+
+	if (treesOn) {
+		glCallList(treeList);
+	}
+
 	if (linesOn) {
 		if (groundOn) {
 			glColor3f(0., 0., 0.);
@@ -409,12 +511,6 @@ Display( )
 		}
 		glCallList(mapListLines);
 	}
-	
-	if (groundOn) {
-		glColor3f(1., 1., 1.);
-		glCallList(mapListGround);
-	}
-	
 
 	// possibly draw the axes:
 
@@ -426,7 +522,6 @@ Display( )
 
 
 	// since we are using glScalef( ), be sure the normals get unitized:
-	glEnable( GL_NORMALIZE );
 
 	glDisable( GL_DEPTH_TEST );
 	glMatrixMode( GL_PROJECTION );
@@ -462,6 +557,15 @@ DoGroundMenu(int id)
 
 
 void
+DoTreesMenu(int id)
+{
+	treesOn = id;
+
+	glutSetWindow(MainWindow);
+	glutPostRedisplay();
+}
+
+void
 DoAxesMenu( int id )
 {
 	AxesOn = id;
@@ -487,6 +591,13 @@ DoMainMenu( int id )
 {
 	switch( id )
 	{
+		case GENERATE:
+			glDeleteLists(treeList, 1);
+			glDeleteLists(mapListLines, 1);
+			glDeleteLists(mapListGround, 1);
+			glDeleteLists(AxesList, 1);
+			InitLists();
+			break;
 		case RESET:
 			Reset( );
 			break;
@@ -571,6 +682,10 @@ InitMenus( )
 	glutAddMenuEntry("Off", 0);
 	glutAddMenuEntry("On", 1);
 
+	int treesmenu = glutCreateMenu(DoTreesMenu);
+	glutAddMenuEntry("Off", 0);
+	glutAddMenuEntry("On", 1);
+
 	int debugmenu = glutCreateMenu( DoDebugMenu );
 	glutAddMenuEntry( "Off",  0 );
 	glutAddMenuEntry( "On",   1 );
@@ -580,9 +695,10 @@ InitMenus( )
 	glutAddMenuEntry( "Perspective",   PERSP );
 
 	int mainmenu = glutCreateMenu( DoMainMenu );
-
+	glutAddMenuEntry("Generate", GENERATE);
 	glutAddSubMenu("Lines", linesmenu);
 	glutAddSubMenu("Ground", groundmenu);
+	glutAddSubMenu("Trees", treesmenu);
 
 	glutAddSubMenu(   "Axes",          axesmenu);
 
@@ -603,9 +719,7 @@ InitMenus( )
 
 void
 InitGraphics( )
-{
-	initMap();
-	
+{	
 	// request the display modes:
 	// ask for red-green-blue-alpha color, double-buffering, and z-buffering:
 
@@ -695,11 +809,15 @@ InitGraphics( )
 //  memory so that they can be played back efficiently at a later time
 //  with a call to glCallList( )
 
+
 void
 InitLists( )
 {
-	
+	initMap();
+
 	glutSetWindow( MainWindow );
+	float rgb[3];
+	float hsv[3] = { 360., 1.0, 1.0 };
 
 	//offset makes 0,0 the center of the world
 	float offset = - ((worldSize / 2. - 1.) * squareSize) - (squareSize / 2);
@@ -729,13 +847,50 @@ InitLists( )
 	for (int i = 0; i < worldSize - 1; i++) {
 		glBegin(GL_TRIANGLE_STRIP);
 		for (int j = 0; j < worldSize; j++) {
+
+			glNormal3f(worldMap[i][j].x + offset, worldMap[i][j].y + 2., worldMap[i][j].z + offset);
 			glVertex3f(worldMap[i][j].x + offset, worldMap[i][j].y, worldMap[i][j].z + offset);
+			glNormal3f(worldMap[i + 1][j].x + offset, worldMap[i + 1][j].y + 2., worldMap[i + 1][j].z + offset);
 			glVertex3f(worldMap[i + 1][j].x + offset, worldMap[i + 1][j].y, worldMap[i + 1][j].z + offset);
+
 		}
 		glEnd();
 	}
 	glEndList();
 
+	
+	// generate trees
+	treeList = glGenLists(1);
+	glNewList(treeList, GL_COMPILE);
+	glLineWidth(5.);
+	hsv[0] = randInt(0, 360);
+	for (int i = 0; i < 7; i++) {
+		hsv[0] = hsv[0] + 20 % 360;
+		HsvRgb(hsv, rgb);
+
+		trees[i].r = rgb[0];
+		trees[i].g = rgb[1];
+		trees[i].b = rgb[2];
+
+		glColor3fv(rgb);
+
+		int x = (i % 2 == 0) ? randInt(0, worldSize / 3) : randInt(worldSize / 3 * 2, worldSize);
+		int z = (i > 4) ? randInt(0, worldSize / 3) : randInt(worldSize / 3 * 2, worldSize);
+		
+		glBegin(GL_LINE_STRIP);
+			glVertex3f(worldMap[x][z].x + offset, worldMap[x][z].y, worldMap[x][z].z + offset);
+			glVertex3f(worldMap[x][z].x + offset, worldMap[x][z].y + treeHeight, worldMap[x][z].z + offset);
+		glEnd();
+
+		drawCanopy(worldMap[x][z].x + offset, worldMap[x][z].y + treeHeight * 0.9, worldMap[x][z].z + offset);
+
+		trees[i].lightCoord.x = worldMap[x][z].x + offset;
+		trees[i].lightCoord.y = worldMap[x][z].y + treeHeight;
+		trees[i].lightCoord.z = worldMap[x][z].z + offset;
+		
+	}
+	glLineWidth(1.);
+	glEndList();
 
 	// create the axes:
 
@@ -758,6 +913,14 @@ Keyboard( unsigned char c, int x, int y )
 
 	switch( c )
 	{
+		case 'r':
+		case 'R':
+			glDeleteLists(treeList, 1);
+			glDeleteLists(mapListLines, 1);
+			glDeleteLists(mapListGround, 1);
+			glDeleteLists(AxesList, 1);
+			InitLists();
+			break;
 		case 'o':
 		case 'O':
 			WhichProjection = ORTHO;
@@ -893,8 +1056,9 @@ Reset( )
 	ShadowsOn = 0;
 	WhichProjection = PERSP;
 	Xrot = Yrot = 0.;
-	groundOn = 0;
-	linesOn = 1;
+	groundOn = 1;
+	linesOn = 0;
+	treesOn = 0;
 }
 
 
@@ -1380,4 +1544,45 @@ Unit(float vin[3], float vout[3])
 		vout[2] = vin[2];
 	}
 	return dist;
+}
+
+void
+SetPointLight(int ilight, float x, float y, float z, float r, float g, float b)
+{
+	glLightfv(ilight, GL_POSITION, Array3(x, y, z));
+	glLightfv(ilight, GL_AMBIENT, Array3(0., 0., 0.));
+	glLightfv(ilight, GL_DIFFUSE, Array3(r, g, b));
+	glLightfv(ilight, GL_SPECULAR, Array3(r, g, b));
+	glLightf(ilight, GL_CONSTANT_ATTENUATION, 1.);
+	glLightf(ilight, GL_LINEAR_ATTENUATION, 0.);
+	glLightf(ilight, GL_QUADRATIC_ATTENUATION, 0.);
+	glEnable(ilight);
+}
+
+void
+SetSpotLight(int ilight, float x, float y, float z, float xdir, float ydir, float zdir, float r, float g, float b)
+{
+	glLightfv(ilight, GL_POSITION, Array3(x, y, z));
+	glLightfv(ilight, GL_SPOT_DIRECTION, Array3(xdir, ydir, zdir));
+	glLightf(ilight, GL_SPOT_EXPONENT, 1.);
+	//glLightf(ilight, GL_SPOT_CUTOFF, 45.);
+	glLightfv(ilight, GL_AMBIENT, Array3(0., 0., 0.));
+	glLightfv(ilight, GL_DIFFUSE, Array3(r, g, b));
+	glLightfv(ilight, GL_SPECULAR, Array3(r, g, b));
+	//glLightf(ilight, GL_CONSTANT_ATTENUATION, 1.);
+	//glLightf(ilight, GL_LINEAR_ATTENUATION, 0.);
+	//glLightf(ilight, GL_QUADRATIC_ATTENUATION, 0.);
+	glEnable(ilight);
+}
+
+float*
+Array3(float a, float b, float c)
+{
+	static float array[4];
+
+	array[0] = a;
+	array[1] = b;
+	array[2] = c;
+	array[3] = 1.;
+	return array;
 }
